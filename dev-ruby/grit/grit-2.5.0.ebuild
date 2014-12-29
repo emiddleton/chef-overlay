@@ -12,7 +12,7 @@ inherit ruby-fakegem
 
 DESCRIPTION="Git Library for Ruby"
 HOMEPAGE="http://rubyforge.org/projects/grit http://github.com/mojombo/grit"
-SRC_URI="https://github.com/mojombo/grit/tarball/v${PV} -> ${P}.tar.gz"
+SRC_URI="https://github.com/mojombo/grit/archive/v${PV}.tar.gz -> ${P}.tar.gz"
 
 LICENSE="MIT"
 SLOT="0"
