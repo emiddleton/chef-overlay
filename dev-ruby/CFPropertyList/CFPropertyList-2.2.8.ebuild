@@ -7,14 +7,10 @@ USE_RUBY="ruby19 ruby20 ruby21"
 
 inherit ruby-fakegem
 
-DESCRIPTION="A simple utility to manage VMware Fusion VMs from the command line"
-HOMEPAGE="https://github.com/thbishop/fission"
+DESCRIPTION="module to manipulate both binary and XML property lists"
+HOMEPAGE="https://github.com/ckruse/CFPropertyList"
 
 LICENSE="MIT"
 SLOT="0"
 KEYWORDS="~amd64"
 IUSE=""
-
-ruby_add_rdepend "
-	>=dev-ruby/CFPropertyList-2.2
-	"
