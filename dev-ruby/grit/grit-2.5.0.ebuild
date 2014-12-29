@@ -4,8 +4,8 @@
 
 EAPI=5
 
-RUBY_FAKEGEM_DOCDIR="rdoc"
-RUBY_S="mojombo-${PN}-*"
+RUBY_FAKEGEM_EXTRADOC="API.txt History.txt README.md examples/* benchmarks.*"
+
 USE_RUBY="ruby20"
 
 inherit ruby-fakegem
