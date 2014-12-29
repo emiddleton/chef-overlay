@@ -16,12 +16,20 @@ KEYWORDS="~amd64 ~x86"
 IUSE=""
 
 ruby_add_rdepend "
-    dev-ruby/builder
-	>=dev-ruby/excon-0.31.0
-	>=dev-ruby/formatador-0.2.0
-	>=dev-ruby/multi_json-1.0
-	dev-ruby/mime-types
-	>=dev-ruby/net-ssh-2.1.4
-	>=dev-ruby/net-scp-1.1
+	>=dev-ruby/fog-core-1.25
+	>=dev-ruby/fog-json
+	>=dev-ruby/fog-xml-0.1.1
+	
 	>=dev-ruby/nokogiri-1.5.11
+	dev-ruby/ipaddress
+
+	>=dev-ruby/fog-brightbox-0.4
+	>=dev-ruby/fog-softlayer
+	>=dev-ruby/fog-sakuracloud-0.0.4
+	>=dev-ruby/fog-radosgw-0.0.2
+	>=dev-ruby/fog-profitbricks
+	>=dev-ruby/fog-voxel
+	>=dev-ruby/fog-vmfusion
+	>=dev-ruby/fog-terremark
+	dev-ruby/opennebula
 	"
