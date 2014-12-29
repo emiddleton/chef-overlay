@@ -13,16 +13,15 @@ HOMEPAGE="http://github.com/geemus/fog"
 LICENSE="MIT"
 SLOT="0"
 KEYWORDS="~amd64 ~x86"
-IUSE=""
+IUSE="libvirt"
 
 ruby_add_rdepend "
 	>=dev-ruby/fog-core-1.25
 	dev-ruby/fog-json
 	>=dev-ruby/fog-xml-0.1.1
-	
 	>=dev-ruby/nokogiri-1.5.11
 	dev-ruby/ipaddress
-
+	libvirt? ( dev-ruby/ruby-libvirt )
 	>=dev-ruby/fog-brightbox-0.4
 	dev-ruby/fog-softlayer
 	>=dev-ruby/fog-sakuracloud-0.0.4
