@@ -1,0 +1,11 @@
+diff -ur veewee-0.4.5.1.org/lib/veewee/definitions.rb veewee-0.4.5.1/lib/veewee/definitions.rb
+--- veewee-0.4.5.1.org/lib/veewee/definitions.rb	2014-12-28 20:25:06.021144389 +0900
++++ veewee-0.4.5.1/lib/veewee/definitions.rb	2014-12-29 16:16:29.327269054 +0900
+@@ -67,7 +67,7 @@
+ 
+       git_template = false
+       # Check if the template is a git repo
+-      if template_name.start_with?("git://", "git+ssh://", "git+http://")
++      if template_name.start_with?("git://", "git+ssh://", "git+http://") or template_name.end_with?(".git")
+         git_template = true
+       end

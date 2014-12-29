@@ -23,9 +23,11 @@ RDEPEND="dev-vcs/git"
 DEPEND="test? ( dev-vcs/git )"
 
 ruby_add_bdepend "doc? ( virtual/ruby-rdoc )
-	test? ( dev-ruby/mime-types
+	test? ( dev-ruby/posix-spawn
+	    dev-ruby/mime-types
 		dev-ruby/diff-lcs )"
-ruby_add_rdepend "dev-ruby/mime-types
+ruby_add_rdepend "dev-ruby/posix-spawn
+	dev-ruby/mime-types
 	dev-ruby/diff-lcs"
 
 all_ruby_unpack() {

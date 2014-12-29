@@ -20,6 +20,7 @@ IUSE=""
 
 RUBY_PATCHES=(
 	use-full-arp-path.patch
+	accept-git-urls.patch
 )
 
 ruby_add_rdepend "
