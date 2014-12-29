@@ -4,7 +4,7 @@
 
 EAPI=3
 
-USE_RUBY="ruby18 ruby19 ruby20"
+USE_RUBY="ruby18 ruby19 ruby20 ruby21"
 
 inherit ruby-fakegem
 
