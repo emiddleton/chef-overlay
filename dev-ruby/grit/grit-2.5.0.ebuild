@@ -6,7 +6,7 @@ EAPI=5
 
 RUBY_FAKEGEM_EXTRADOC="API.txt History.txt README.md examples/* benchmarks.*"
 
-USE_RUBY="ruby20"
+USE_RUBY="ruby19 ruby20"
 
 inherit ruby-fakegem
 
