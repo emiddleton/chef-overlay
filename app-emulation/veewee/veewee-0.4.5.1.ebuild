@@ -3,7 +3,7 @@
 # $Header: $
 
 EAPI=5
-USE_RUBY="ruby20"
+USE_RUBY="ruby19 ruby20"
 
 RUBY_FAKEGEM_EXTRAINSTALL="templates"
 
@@ -21,6 +21,7 @@ IUSE=""
 RUBY_PATCHES=(
 	use-full-arp-path.patch
 	accept-git-urls.patch
+	vnc-fixes.patch
 )
 
 ruby_add_rdepend "

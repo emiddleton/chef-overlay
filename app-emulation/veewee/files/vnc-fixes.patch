@@ -1,0 +1,40 @@
+diff -ur veewee-0.4.5.1.org/lib/net/vnc/vnc.rb veewee-0.4.5.1/lib/net/vnc/vnc.rb
+--- veewee-0.4.5.1.org/lib/net/vnc/vnc.rb	2015-01-01 02:52:09.195669663 +0900
++++ veewee-0.4.5.1/lib/net/vnc/vnc.rb	2015-01-01 02:53:22.599002440 +0900
+@@ -106,6 +106,7 @@
+ 
+     def connect
+       @socket = TCPSocket.open server, port
++      @socket.setsockopt(Socket::IPPROTO_TCP, Socket::TCP_NODELAY, 1)
+       unless socket.read(12) =~ /^RFB (\d{3}.\d{3})\n$/
+         raise 'invalid server response'
+       end
+@@ -151,7 +152,7 @@
+       packet = 0.chr * 8
+       packet[0] = 4.chr
+       text.split(//).each do |char|
+-        packet[7] = char[0]
++        packet[7] = char.ord.chr
+         packet[1] = 1.chr
+         socket.write packet
+         packet[1] = 0.chr
+@@ -169,7 +170,7 @@
+     # This types +text+ on the server, but it holds the shift key down when necessary.
+     # It will also execute key_press for tabs and returns.
+     def type_string text, options={}
+-      shift_key_down = nil
++      shift_key_down = false
+ 
+       text.each_char do |char|
+         key_to_press = KEY_PRESS_CHARS[char]
+@@ -177,8 +178,7 @@
+           key_press key_to_press
+         else
+           key_needs_shift = SHIFTED_CHARS.include? char
+-
+-          if shift_key_down.nil? || shift_key_down != key_needs_shift
++          if shift_key_down && shift_key_down != key_needs_shift
+             if key_needs_shift
+               key_down :shift
+             else
+
