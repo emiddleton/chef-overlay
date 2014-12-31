@@ -3,12 +3,12 @@
 # $Header: $
 
 EAPI=5
-USE_RUBY="ruby20"
+USE_RUBY="ruby19 ruby20"
 
 inherit ruby-fakegem
 
 DESCRIPTION="This gem makes URL friendly strings out of not so pretty strings."
-HOMEPAGE="https://ericboehs.com/"
+HOMEPAGE="https://github.com/ericboehs/to_slug"
 
 LICENSE=""
 SLOT="0"
