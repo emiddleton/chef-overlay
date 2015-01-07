@@ -12,7 +12,7 @@ HOMEPAGE="https://github.com/fog/fog-sakuracloud"
 
 LICENSE="MIT"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""
 
 ruby_add_rdepend "

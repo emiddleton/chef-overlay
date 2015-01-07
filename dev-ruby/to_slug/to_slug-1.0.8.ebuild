@@ -12,5 +12,5 @@ HOMEPAGE="https://github.com/ericboehs/to_slug"
 
 LICENSE=""
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""

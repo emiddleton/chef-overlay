@@ -12,5 +12,5 @@ HOMEPAGE="http://github.com/peleteiro/progressbar"
 
 LICENSE="Ruby"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""

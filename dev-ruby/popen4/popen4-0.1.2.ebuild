@@ -12,5 +12,5 @@ HOMEPAGE="https://github.com/shairontoledo/popen4"
 
 LICENSE="Ruby-BSD"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""

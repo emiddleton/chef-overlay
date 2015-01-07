@@ -12,5 +12,5 @@ HOMEPAGE="https://github.com/mbj/inflecto"
 
 LICENSE="MIT"
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""

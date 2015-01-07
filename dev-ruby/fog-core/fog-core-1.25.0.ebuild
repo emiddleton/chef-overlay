@@ -12,7 +12,7 @@ HOMEPAGE=""
 
 LICENSE=""
 SLOT="0"
-KEYWORDS="~amd64"
+KEYWORDS="amd64"
 IUSE=""
 
 ruby_add_rdepend "
