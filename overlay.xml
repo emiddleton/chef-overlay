@@ -1,0 +1,12 @@
+<?xml version="1.0" ?>
+<repositories version="1.0">
+  <repo priority="50" quality="experimental" status="unofficial">
+    <name>emiddleton-chef-overlay</name>
+    <description>Chef development and deployment related ebuilds.</description>
+    <homepage>https://github.com/emiddleton/chef-overlay</homepage>
+    <owner>
+      <email>edward.middleton@vortorus.net</email>
+    </owner>
+    <source type="git">https://github.com/emiddleton/chef-overlay.git</source>
+  </repo>
+</repositories>
