@@ -4,6 +4,8 @@
 
 EAPI="5"
 
+inherit eutils
+
 DESCRIPTION="Omnibus installation of ChefDK"
 HOMEPAGE="http://www.opscode.com/chefdk/install/"
 SRC_URI="http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chefdk_${PV}-1_amd64.deb"
@@ -20,6 +22,7 @@ S="${WORKDIR}"
 
 src_unpack() {
 	unpack ${A} ./data.tar.gz
+	epatch ${FILESDIR}/multiple-step-converge.patch
 }
 
 src_install() {

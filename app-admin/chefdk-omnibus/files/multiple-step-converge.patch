@@ -1,0 +1,1184 @@
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/command/list.rb opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/command/list.rb
+index cb4d7a7..be6fc29 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/command/list.rb
++++ opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/command/list.rb
+@@ -49,7 +49,7 @@ module Kitchen
+         [
+           color_pad(instance.name),
+           color_pad(instance.driver.name),
+-          color_pad(instance.provisioner.name),
++          color_pad(instance.provisioners.last.name),
+           format_last_action(instance.last_action)
+         ]
+       end
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/config.rb opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/config.rb
+index c52eb84..0005a70 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/config.rb
++++ opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/config.rb
+@@ -68,6 +68,17 @@ module Kitchen
+ 
+     private
+ 
++    def each_step(suite_name)
++      name, step = * suite_name.split(/_step_/)
++      (1..step.to_i).map do |count|
++        yield suites.find { |suite| suite.name == "#{name}_step_#{count}" }
++      end
++    end
++
++    # Builds the filtered list of Instance objects.
++    #
++    # @return [Array<Instance] an array of Instances
++    # @api private
+     def build_instances
+       filter_instances.map.with_index do |(suite, platform), index|
+         new_instance(suite, platform, index)
+@@ -131,7 +142,7 @@ module Kitchen
+         :logger       => new_logger(suite, platform, index),
+         :suite        => suite,
+         :platform     => platform,
+-        :provisioner  => new_provisioner(suite, platform),
++        :provisioners => new_provisioners(suite, platform),
+         :state_file   => new_state_file(suite, platform)
+       )
+     end
+@@ -147,6 +158,31 @@ module Kitchen
+       )
+     end
+ 
++    # Builds an array of newly configured Provisioner objects,
++    # for a given Suite and Platform.
++    #
++    # @param suite [Suite,#name] a Suite
++    # @param platform [Platform,#name] a Platform
++    # @return Array[Provisioner] a new Provisioner object
++    # @api private
++    def new_provisioners(suite, platform)
++      # check if suite name otherwise is a suite step
++      if data.steps?(suite.name)
++        each_step(suite.name) do |step|
++          new_provisioner(step, platform)
++        end
++      else
++        [new_provisioner(suite, platform)]
++      end
++    end
++
++    # Builds a newly configured Provisioner object, for a given Suite
++    # and Platform.
++    #
++    # @param suite [Suite,#name] a Suite
++    # @param platform [Platform,#name] a Platform
++    # @return [Provisioner] a new Provisioner object
++    # @api private
+     def new_provisioner(suite, platform)
+       pdata = data.provisioner_data_for(suite.name, platform.name)
+       Provisioner.for_plugin(pdata[:name], pdata)
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/data_munger.rb opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/data_munger.rb
+index 617bec0..2e2abaa 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/data_munger.rb
++++ opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/data_munger.rb
+@@ -58,6 +58,22 @@ module Kitchen
+       data.fetch(:platforms, [])
+     end
+ 
++    def provisioners_for(suite_name, platform)
++      # check if suite name otherwise is a suite step
++      if data.fetch(:suites, []).find{|suite|suite[:name]==suite_name}
++        pdata = provisioner_data_for(suite_name, platform)
++        [Provisioner.for_plugin(pdata[:name], pdata)]
++      else
++        name, step =* suite_name.split(/_step_/)
++        (1..step.to_i).inject([]) do |steps,cnt|
++          pdata = provisioner_data_for("#{name}_step_#{cnt}", platform)
++          prov = Provisioner.for_plugin(pdata[:name], pdata)
++          steps << prov
++          steps
++        end
++      end
++    end
++
+     def provisioner_data_for(suite, platform)
+       merged_data_for(:provisioner, suite, platform).tap do |pdata|
+         set_kitchen_config_at!(pdata, :kitchen_root)
+@@ -68,7 +84,21 @@ module Kitchen
+     end
+ 
+     def suite_data
+-      data.fetch(:suites, [])
++      @suite_data ||= data.fetch(:suites, []).inject([]) do |suites, suite|
++        if suite[:steps]
++          suite[:steps].each_with_index do |sub_suite, index|
++            sub_suite[:name] = "#{suite[:name]}_step_#{index + 1}"
++            suites << sub_suite
++          end
++        else
++          suites << suite
++        end
++        suites
++      end
++    end
++
++    def steps?(suite_name)
++      !data.fetch(:suites, []).find { |suite| suite[:name] == suite_name }
+     end
+ 
+     private
+@@ -148,7 +178,7 @@ module Kitchen
+     end
+ 
+     def move_chef_data_to_provisioner!
+-      data.fetch(:suites, []).each do |suite|
++      suite_data.each do |suite|
+         move_chef_data_to_provisioner_at!(suite, :attributes)
+         move_chef_data_to_provisioner_at!(suite, :run_list)
+       end
+@@ -163,8 +193,9 @@ module Kitchen
+       if root.has_key?(key)
+         pdata = root.fetch(:provisioner, Hash.new)
+         pdata = { :name => pdata } if pdata.is_a?(String)
+-        if ! root.fetch(key, nil).nil?
+-          root[:provisioner] = pdata.rmerge({ key => root.delete(key) })
++        if !root.fetch(key, nil).nil?
++          root[:provisioner] = pdata.rmerge(key => root.delete(key))
++          root[:provisioner]
+         end
+       end
+     end
+@@ -217,7 +248,7 @@ module Kitchen
+     end
+ 
+     def suite_data_for(name)
+-      data.fetch(:suites, Hash.new).find(lambda { Hash.new }) do |suite|
++      suite_data.find(-> { Hash.new }) do |suite|
+         suite.fetch(:name, nil) == name
+       end
+     end
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/driver/ssh_base.rb opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/driver/ssh_base.rb
+index 2447ca3..d873aac 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/driver/ssh_base.rb
++++ opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/driver/ssh_base.rb
+@@ -36,19 +36,16 @@ module Kitchen
+       end
+ 
+       def converge(state)
+-        provisioner = instance.provisioner
+-        provisioner.create_sandbox
+-        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
+-
+-        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
+-          run_remote(provisioner.install_command, conn)
+-          run_remote(provisioner.init_command, conn)
+-          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
+-          run_remote(provisioner.prepare_command, conn)
+-          run_remote(provisioner.run_command, conn)
++        # allow multiple provisioning runs
++        step = 1
++        instance.provisioners.each do |provisioner|
++          begin
++            run_step(state, provisioner, step)
++          ensure
++            provisioner && provisioner.cleanup_sandbox
++          end
++          step += 1
+         end
+-      ensure
+-        provisioner && provisioner.cleanup_sandbox
+       end
+ 
+       def setup(state)
+@@ -80,6 +77,25 @@ module Kitchen
+ 
+       protected
+ 
++      def run_step(state, provisioner, step)
++        info("Running Step #{step}")
++        provisioner.create_sandbox
++        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
++        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
++          conn.wait
++          run_remote(provisioner.install_command, conn)
++          run_remote(provisioner.init_command, conn)
++          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
++          run_remote(provisioner.prepare_command, conn)
++          run_remote(provisioner.run_command, conn)
++        end
++      end
++
++      # Builds arguments for constructing a `Kitchen::SSH` instance.
++      #
++      # @param state [Hash] state hash
++      # @return [Array] SSH constructor arguments
++      # @api private
+       def build_ssh_args(state)
+         combined = config.to_hash.merge(state)
+ 
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/instance.rb opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/instance.rb
+index 9aeef32..d9e728e 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/lib/kitchen/instance.rb
++++ opt/chefdk/embedded/apps/test-kitchen/lib/kitchen/instance.rb
+@@ -54,7 +54,7 @@ module Kitchen
+     # @return [Provisioner::Base] provisioner object which will the setup
+     #   and invocation instructions for configuration management and other
+     #   automation tools
+-    attr_reader :provisioner
++    attr_reader :provisioners
+ 
+     # @return [Busser] busser object for instance to manage the busser
+     #   installation on this instance
+@@ -66,11 +66,11 @@ module Kitchen
+     # Creates a new instance, given a suite and a platform.
+     #
+     # @param [Hash] options configuration for a new suite
+-    # @option options [Suite] :suite the suite (**Required)
+-    # @option options [Platform] :platform the platform (**Required)
+-    # @option options [Driver::Base] :driver the driver (**Required)
+-    # @option options [Provisioner::Base] :provisioner the provisioner
+-    #   (**Required)
++    # @option options [Suite] :suite the suite (**Required**)
++    # @option options [Platform] :platform the platform (**Required**)
++    # @option options [Driver::Base] :driver the driver (**Required**)
++    # @option options Array[Provisioner::Base] :provisioner the provisioner
++    #   (**Required**)
+     # @option options [Busser] :busser the busser logger (**Required**)
+     # @option options [Logger] :logger the instance logger
+     #   (default: Kitchen.logger)
+@@ -84,13 +84,13 @@ module Kitchen
+       @platform     = options.fetch(:platform)
+       @name         = self.class.name_for(@suite, @platform)
+       @driver       = options.fetch(:driver)
+-      @provisioner  = options.fetch(:provisioner)
++      @provisioners = options.fetch(:provisioners)
+       @busser       = options.fetch(:busser)
+       @logger       = options.fetch(:logger) { Kitchen.logger }
+       @state_file   = options.fetch(:state_file)
+ 
+       setup_driver
+-      setup_provisioner
++      setup_provisioners
+     end
+ 
+     def to_str
+@@ -198,10 +198,18 @@ module Kitchen
+     # @return [Hash] a diagnostic hash
+     def diagnose
+       result = Hash.new
+-      [:state_file, :driver, :provisioner, :busser].each do |sym|
++      [:state_file, :driver, :provisioners, :busser].each do |sym|
+         obj = send(sym)
+         result[sym] = obj.respond_to?(:diagnose) ? obj.diagnose : :unknown
+       end
++      result[:provisioners] = provisioners.inject([]) do |rslts, obj|
++        if obj.respond_to?(:diagnose)
++          rslts << obj.send(:diagnose)
++        else
++          rslts << :unknown
++        end
++        rslts
++      end
+       result
+     end
+ 
+@@ -214,10 +222,12 @@ module Kitchen
+     attr_reader :state_file
+ 
+     def validate_options(options)
+-      [:suite, :platform, :driver, :provisioner, :busser, :state_file].each do |k|
+-        if !options.has_key?(k)
+-          raise ClientError, "Instance#new requires option :#{k}"
+-        end
++      [
++        :suite, :platform, :driver, :provisioners, :busser, :state_file
++      ].each do |k|
++        next if options.key?(k)
++
++        raise ClientError, "Instance#new requires option :#{k}"
+       end
+     end
+ 
+@@ -236,8 +246,14 @@ module Kitchen
+       end
+     end
+ 
+-    def setup_provisioner
+-      @provisioner.instance = self
++    # Perform any final configuration or preparation needed for the provisioners
++    # objects to carry out their duties.
++    #
++    # @api private
++    def setup_provisioners
++      @provisioners.each do |provisioner|
++        provisioner.instance = self
++      end
+     end
+ 
+     def transition_to(desired)
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/spec/kitchen/config_spec.rb opt/chefdk/embedded/apps/test-kitchen/spec/kitchen/config_spec.rb
+index dbfa764..60554fe 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/spec/kitchen/config_spec.rb
++++ opt/chefdk/embedded/apps/test-kitchen/spec/kitchen/config_spec.rb
+@@ -165,26 +165,100 @@ describe Kitchen::Config do
+ 
+   describe "#instances" do
+ 
+-    it "returns an empty Array if no suites and platforms are given" do
+-      stub_data!({})
++    let(:platforms) do
++      [stub(:name => "unax")]
++    end
+ 
+-      config.instances.must_equal []
++    let(:suites) do
++      [stub(:name => "tiny", :includes => [], :excludes => [])]
+     end
+ 
+-    it "returns an array of instances" do
+-      skip "much more needed here"
++    let(:munger) do
++      stub(
++        :busser_data_for => { "junk" => true },
++        :driver_data_for => { "junk" => true },
++        :provisioner_data_for => { "junk" => true }
++      )
++    end
+ 
+-      stub_data!({
+-        :platforms => [
+-          { :name => "p1" },
+-          { :name => "p2" }
+-        ],
+-        :suites => [
+-          { :name => 's1' },
+-          { :name => 's2' }
+-        ]
+-      })
++    before do
++      Kitchen::Instance.stubs(:new).returns("instance")
++      Kitchen::Busser.stubs(:new).returns("busser")
++      Kitchen::Driver.stubs(:for_plugin).returns("driver")
++      Kitchen::Provisioner.stubs(:for_plugin).returns("provisioner")
++      Kitchen::Logger.stubs(:new).returns("logger")
++      Kitchen::StateFile.stubs(:new).returns("state_file")
++
++      Kitchen::DataMunger.stubs(:new).returns(munger)
++      config.stubs(:platforms).returns(platforms)
++      config.stubs(:suites).returns(suites)
++      munger.stubs(:steps?).returns(false)
++    end
++
++    it "constructs a Busser object" do
++      munger.expects(:busser_data_for).with("tiny", "unax").returns("datum")
++      Kitchen::Busser.unstub(:new)
++      Kitchen::Busser.expects(:new).with("tiny", "datum")
++
++      config.instances
++    end
++
++    it "constructs a Driver object" do
++      munger.expects(:driver_data_for).with("tiny", "unax").
++        returns(:name => "drivey", :datum => "lots")
++      Kitchen::Driver.unstub(:for_plugin)
++      Kitchen::Driver.expects(:for_plugin).
++        with("drivey", :name => "drivey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs single Provisioner object" do
++      munger.expects(:provisioner_data_for).with("tiny", "unax").
++        returns(:name => "provey", :datum => "lots")
++      Kitchen::Provisioner.unstub(:for_plugin)
++      Kitchen::Provisioner.expects(:for_plugin).
++        with("provey", :name => "provey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs Provisioner objects" do
++      munger.stubs(:steps?).returns(true)
++      config.stubs(:each_step).yields(stub(:name => "tiny_step_1"))
++      munger.expects(:provisioner_data_for).with("tiny_step_1", "unax").
++        returns(:name => "provey", :datum => "lots")
++      Kitchen::Provisioner.unstub(:for_plugin)
++      Kitchen::Provisioner.expects(:for_plugin).
++        with("provey", :name => "provey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs a Logger object" do
++      Kitchen::Logger.unstub(:new)
++      Kitchen::Logger.expects(:new).with(
++        :stdout => STDOUT,
++        :color => :cyan,
++        :logdev => "/tmp/logs/tiny-unax.log",
++        :level => 0,
++        :progname => "tiny-unax"
++      )
++
++      config.instances
++    end
+ 
++    it "constructs an Instance object from all built objects" do
++      Kitchen::Instance.unstub(:new)
++      Kitchen::Instance.expects(:new).with(
++        :busser => "busser",
++        :driver => "driver",
++        :logger => "logger",
++        :suite => suites.first,
++        :platform => platforms.first,
++        :provisioners => ["provisioner"],
++        :state_file => "state_file"
++      )
+       config.instances
+     end
+   end
+diff --git opt.orig/chefdk/embedded/apps/test-kitchen/spec/kitchen/instance_spec.rb opt/chefdk/embedded/apps/test-kitchen/spec/kitchen/instance_spec.rb
+index 7e88acf..f02bdd4 100644
+--- opt.orig/chefdk/embedded/apps/test-kitchen/spec/kitchen/instance_spec.rb
++++ opt/chefdk/embedded/apps/test-kitchen/spec/kitchen/instance_spec.rb
+@@ -89,13 +89,13 @@ describe Kitchen::Instance do
+   let(:logger_io)   { StringIO.new }
+   let(:logger)      { Kitchen::Logger.new(:logdev => logger_io) }
+   let(:instance)    { Kitchen::Instance.new(opts) }
+-  let(:provisioner) { Kitchen::Provisioner::Dummy.new({}) }
++  let(:provisioners) { [Kitchen::Provisioner::Dummy.new({})] }
+   let(:state_file)  { DummyStateFile.new }
+   let(:busser)      { Kitchen::Busser.new(suite.name, {}) }
+ 
+   let(:opts) do
+     { :suite => suite, :platform => platform, :driver => driver,
+-      :provisioner => provisioner, :busser => busser,
++      :provisioners => provisioners, :busser => busser,
+       :logger => logger, :state_file => state_file }
+   end
+ 
+@@ -198,20 +198,22 @@ describe Kitchen::Instance do
+     end
+   end
+ 
+-  describe "#provisioner" do
++  describe "#provisioners" do
+ 
+-    it "returns its provisioner" do
+-      instance.provisioner.must_equal provisioner
++    it "returns its provisioners" do
++      instance.provisioners.must_equal provisioners
+     end
+ 
+     it "raises an ArgumentError if missing" do
+-      opts.delete(:provisioner)
++      opts.delete(:provisioners)
+       proc { Kitchen::Instance.new(opts) }.must_raise Kitchen::ClientError
+     end
+ 
+     it "sets Provisioner#instance to itself" do
+       # it's mind-bottling
+-      instance.provisioner.instance.must_equal instance
++      instance.provisioners.each do |provisioner|
++        provisioner.instance.must_equal instance
++      end
+     end
+   end
+ 
+@@ -251,6 +253,51 @@ describe Kitchen::Instance do
+     instance.login
+   end
+ 
++  describe "#diagnose" do
++
++    it "returns a hash" do
++      instance.diagnose.must_be_instance_of Hash
++    end
++
++    it "sets :state_file key to state_file's diganose info" do
++      state_file.stubs(:diagnose).returns(:a => "b")
++
++      instance.diagnose[:state_file].must_equal(:a => "b")
++    end
++
++    it "sets :provisioners key to provisioner's diganose info" do
++      provisioner = provisioners.first
++      provisioner.stubs(:diagnose).returns(:a => "b")
++      provisioners.stubs(:[]).returns(provisioner)
++
++      instance.diagnose[:provisioners].first.must_equal(:a => "b")
++    end
++
++    it "sets :provisioners key to :unknown if obj can't respond to #diagnose" do
++      opts[:provisioners] = [
++        Class.new(provisioners.first.class) {
++          undef_method :diagnose
++        }.new
++      ]
++
++      instance.diagnose[:provisioners].first.must_equal :unknown
++    end
++
++    it "sets :busser key to busser's diganose info" do
++      busser.stubs(:diagnose).returns(:a => "b")
++
++      instance.diagnose[:busser].must_equal(:a => "b")
++    end
++
++    it "sets :busser key to :unknown if obj can't respond to #diagnose" do
++      opts[:busser] = Class.new(busser.class) {
++        undef_method :diagnose
++      }.new(suite.name, {})
++
++      instance.diagnose[:busser].must_equal :unknown
++    end
++  end
++
+   describe "performing actions" do
+ 
+     describe "#create" do
+@@ -731,7 +778,7 @@ describe Kitchen::Instance do
+         it "write the state file with last action" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_be_nil
+@@ -754,7 +801,7 @@ describe Kitchen::Instance do
+         it "logs the failure" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           logger_io.string.must_match regex_for(
+@@ -771,7 +818,7 @@ describe Kitchen::Instance do
+         it "write the state file with last action" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_be_nil
+@@ -794,7 +841,7 @@ describe Kitchen::Instance do
+         it "logs the failure" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           logger_io.string.must_match regex_for(
+@@ -815,7 +862,7 @@ describe Kitchen::Instance do
+           state_file.write({ :last_action => action.to_s })
+           begin
+             instance.verify
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_equal "setup"
+@@ -826,7 +873,7 @@ describe Kitchen::Instance do
+         state_file.write({ :last_action => "verify" })
+         begin
+           instance.verify
+-        rescue Kitchen::Error => e
++        rescue Kitchen::Error
+         end
+ 
+         state_file.read[:last_action].must_equal "verify"
+-- 
+2.0.4
+
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/command/list.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/command/list.rb
+index cb4d7a7..be6fc29 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/command/list.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/command/list.rb
+@@ -49,7 +49,7 @@ module Kitchen
+         [
+           color_pad(instance.name),
+           color_pad(instance.driver.name),
+-          color_pad(instance.provisioner.name),
++          color_pad(instance.provisioners.last.name),
+           format_last_action(instance.last_action)
+         ]
+       end
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/config.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/config.rb
+index c52eb84..0005a70 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/config.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/config.rb
+@@ -68,6 +68,17 @@ module Kitchen
+ 
+     private
+ 
++    def each_step(suite_name)
++      name, step = * suite_name.split(/_step_/)
++      (1..step.to_i).map do |count|
++        yield suites.find { |suite| suite.name == "#{name}_step_#{count}" }
++      end
++    end
++
++    # Builds the filtered list of Instance objects.
++    #
++    # @return [Array<Instance] an array of Instances
++    # @api private
+     def build_instances
+       filter_instances.map.with_index do |(suite, platform), index|
+         new_instance(suite, platform, index)
+@@ -131,7 +142,7 @@ module Kitchen
+         :logger       => new_logger(suite, platform, index),
+         :suite        => suite,
+         :platform     => platform,
+-        :provisioner  => new_provisioner(suite, platform),
++        :provisioners => new_provisioners(suite, platform),
+         :state_file   => new_state_file(suite, platform)
+       )
+     end
+@@ -147,6 +158,31 @@ module Kitchen
+       )
+     end
+ 
++    # Builds an array of newly configured Provisioner objects,
++    # for a given Suite and Platform.
++    #
++    # @param suite [Suite,#name] a Suite
++    # @param platform [Platform,#name] a Platform
++    # @return Array[Provisioner] a new Provisioner object
++    # @api private
++    def new_provisioners(suite, platform)
++      # check if suite name otherwise is a suite step
++      if data.steps?(suite.name)
++        each_step(suite.name) do |step|
++          new_provisioner(step, platform)
++        end
++      else
++        [new_provisioner(suite, platform)]
++      end
++    end
++
++    # Builds a newly configured Provisioner object, for a given Suite
++    # and Platform.
++    #
++    # @param suite [Suite,#name] a Suite
++    # @param platform [Platform,#name] a Platform
++    # @return [Provisioner] a new Provisioner object
++    # @api private
+     def new_provisioner(suite, platform)
+       pdata = data.provisioner_data_for(suite.name, platform.name)
+       Provisioner.for_plugin(pdata[:name], pdata)
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/data_munger.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/data_munger.rb
+index 617bec0..2e2abaa 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/data_munger.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/data_munger.rb
+@@ -58,6 +58,22 @@ module Kitchen
+       data.fetch(:platforms, [])
+     end
+ 
++    def provisioners_for(suite_name, platform)
++      # check if suite name otherwise is a suite step
++      if data.fetch(:suites, []).find{|suite|suite[:name]==suite_name}
++        pdata = provisioner_data_for(suite_name, platform)
++        [Provisioner.for_plugin(pdata[:name], pdata)]
++      else
++        name, step =* suite_name.split(/_step_/)
++        (1..step.to_i).inject([]) do |steps,cnt|
++          pdata = provisioner_data_for("#{name}_step_#{cnt}", platform)
++          prov = Provisioner.for_plugin(pdata[:name], pdata)
++          steps << prov
++          steps
++        end
++      end
++    end
++
+     def provisioner_data_for(suite, platform)
+       merged_data_for(:provisioner, suite, platform).tap do |pdata|
+         set_kitchen_config_at!(pdata, :kitchen_root)
+@@ -68,7 +84,21 @@ module Kitchen
+     end
+ 
+     def suite_data
+-      data.fetch(:suites, [])
++      @suite_data ||= data.fetch(:suites, []).inject([]) do |suites, suite|
++        if suite[:steps]
++          suite[:steps].each_with_index do |sub_suite, index|
++            sub_suite[:name] = "#{suite[:name]}_step_#{index + 1}"
++            suites << sub_suite
++          end
++        else
++          suites << suite
++        end
++        suites
++      end
++    end
++
++    def steps?(suite_name)
++      !data.fetch(:suites, []).find { |suite| suite[:name] == suite_name }
+     end
+ 
+     private
+@@ -148,7 +178,7 @@ module Kitchen
+     end
+ 
+     def move_chef_data_to_provisioner!
+-      data.fetch(:suites, []).each do |suite|
++      suite_data.each do |suite|
+         move_chef_data_to_provisioner_at!(suite, :attributes)
+         move_chef_data_to_provisioner_at!(suite, :run_list)
+       end
+@@ -163,8 +193,9 @@ module Kitchen
+       if root.has_key?(key)
+         pdata = root.fetch(:provisioner, Hash.new)
+         pdata = { :name => pdata } if pdata.is_a?(String)
+-        if ! root.fetch(key, nil).nil?
+-          root[:provisioner] = pdata.rmerge({ key => root.delete(key) })
++        if !root.fetch(key, nil).nil?
++          root[:provisioner] = pdata.rmerge(key => root.delete(key))
++          root[:provisioner]
+         end
+       end
+     end
+@@ -217,7 +248,7 @@ module Kitchen
+     end
+ 
+     def suite_data_for(name)
+-      data.fetch(:suites, Hash.new).find(lambda { Hash.new }) do |suite|
++      suite_data.find(-> { Hash.new }) do |suite|
+         suite.fetch(:name, nil) == name
+       end
+     end
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/driver/ssh_base.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/driver/ssh_base.rb
+index 2447ca3..d873aac 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/driver/ssh_base.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/driver/ssh_base.rb
+@@ -36,19 +36,16 @@ module Kitchen
+       end
+ 
+       def converge(state)
+-        provisioner = instance.provisioner
+-        provisioner.create_sandbox
+-        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
+-
+-        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
+-          run_remote(provisioner.install_command, conn)
+-          run_remote(provisioner.init_command, conn)
+-          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
+-          run_remote(provisioner.prepare_command, conn)
+-          run_remote(provisioner.run_command, conn)
++        # allow multiple provisioning runs
++        step = 1
++        instance.provisioners.each do |provisioner|
++          begin
++            run_step(state, provisioner, step)
++          ensure
++            provisioner && provisioner.cleanup_sandbox
++          end
++          step += 1
+         end
+-      ensure
+-        provisioner && provisioner.cleanup_sandbox
+       end
+ 
+       def setup(state)
+@@ -80,6 +77,25 @@ module Kitchen
+ 
+       protected
+ 
++      def run_step(state, provisioner, step)
++        info("Running Step #{step}")
++        provisioner.create_sandbox
++        sandbox_dirs = Dir.glob("#{provisioner.sandbox_path}/*")
++        Kitchen::SSH.new(*build_ssh_args(state)) do |conn|
++          conn.wait
++          run_remote(provisioner.install_command, conn)
++          run_remote(provisioner.init_command, conn)
++          transfer_path(sandbox_dirs, provisioner[:root_path], conn)
++          run_remote(provisioner.prepare_command, conn)
++          run_remote(provisioner.run_command, conn)
++        end
++      end
++
++      # Builds arguments for constructing a `Kitchen::SSH` instance.
++      #
++      # @param state [Hash] state hash
++      # @return [Array] SSH constructor arguments
++      # @api private
+       def build_ssh_args(state)
+         combined = config.to_hash.merge(state)
+ 
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/instance.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/instance.rb
+index 9aeef32..d9e728e 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/instance.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/lib/kitchen/instance.rb
+@@ -54,7 +54,7 @@ module Kitchen
+     # @return [Provisioner::Base] provisioner object which will the setup
+     #   and invocation instructions for configuration management and other
+     #   automation tools
+-    attr_reader :provisioner
++    attr_reader :provisioners
+ 
+     # @return [Busser] busser object for instance to manage the busser
+     #   installation on this instance
+@@ -66,11 +66,11 @@ module Kitchen
+     # Creates a new instance, given a suite and a platform.
+     #
+     # @param [Hash] options configuration for a new suite
+-    # @option options [Suite] :suite the suite (**Required)
+-    # @option options [Platform] :platform the platform (**Required)
+-    # @option options [Driver::Base] :driver the driver (**Required)
+-    # @option options [Provisioner::Base] :provisioner the provisioner
+-    #   (**Required)
++    # @option options [Suite] :suite the suite (**Required**)
++    # @option options [Platform] :platform the platform (**Required**)
++    # @option options [Driver::Base] :driver the driver (**Required**)
++    # @option options Array[Provisioner::Base] :provisioner the provisioner
++    #   (**Required**)
+     # @option options [Busser] :busser the busser logger (**Required**)
+     # @option options [Logger] :logger the instance logger
+     #   (default: Kitchen.logger)
+@@ -84,13 +84,13 @@ module Kitchen
+       @platform     = options.fetch(:platform)
+       @name         = self.class.name_for(@suite, @platform)
+       @driver       = options.fetch(:driver)
+-      @provisioner  = options.fetch(:provisioner)
++      @provisioners = options.fetch(:provisioners)
+       @busser       = options.fetch(:busser)
+       @logger       = options.fetch(:logger) { Kitchen.logger }
+       @state_file   = options.fetch(:state_file)
+ 
+       setup_driver
+-      setup_provisioner
++      setup_provisioners
+     end
+ 
+     def to_str
+@@ -198,10 +198,18 @@ module Kitchen
+     # @return [Hash] a diagnostic hash
+     def diagnose
+       result = Hash.new
+-      [:state_file, :driver, :provisioner, :busser].each do |sym|
++      [:state_file, :driver, :provisioners, :busser].each do |sym|
+         obj = send(sym)
+         result[sym] = obj.respond_to?(:diagnose) ? obj.diagnose : :unknown
+       end
++      result[:provisioners] = provisioners.inject([]) do |rslts, obj|
++        if obj.respond_to?(:diagnose)
++          rslts << obj.send(:diagnose)
++        else
++          rslts << :unknown
++        end
++        rslts
++      end
+       result
+     end
+ 
+@@ -214,10 +222,12 @@ module Kitchen
+     attr_reader :state_file
+ 
+     def validate_options(options)
+-      [:suite, :platform, :driver, :provisioner, :busser, :state_file].each do |k|
+-        if !options.has_key?(k)
+-          raise ClientError, "Instance#new requires option :#{k}"
+-        end
++      [
++        :suite, :platform, :driver, :provisioners, :busser, :state_file
++      ].each do |k|
++        next if options.key?(k)
++
++        raise ClientError, "Instance#new requires option :#{k}"
+       end
+     end
+ 
+@@ -236,8 +246,14 @@ module Kitchen
+       end
+     end
+ 
+-    def setup_provisioner
+-      @provisioner.instance = self
++    # Perform any final configuration or preparation needed for the provisioners
++    # objects to carry out their duties.
++    #
++    # @api private
++    def setup_provisioners
++      @provisioners.each do |provisioner|
++        provisioner.instance = self
++      end
+     end
+ 
+     def transition_to(desired)
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/config_spec.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/config_spec.rb
+index dbfa764..60554fe 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/config_spec.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/config_spec.rb
+@@ -165,26 +165,100 @@ describe Kitchen::Config do
+ 
+   describe "#instances" do
+ 
+-    it "returns an empty Array if no suites and platforms are given" do
+-      stub_data!({})
++    let(:platforms) do
++      [stub(:name => "unax")]
++    end
+ 
+-      config.instances.must_equal []
++    let(:suites) do
++      [stub(:name => "tiny", :includes => [], :excludes => [])]
+     end
+ 
+-    it "returns an array of instances" do
+-      skip "much more needed here"
++    let(:munger) do
++      stub(
++        :busser_data_for => { "junk" => true },
++        :driver_data_for => { "junk" => true },
++        :provisioner_data_for => { "junk" => true }
++      )
++    end
+ 
+-      stub_data!({
+-        :platforms => [
+-          { :name => "p1" },
+-          { :name => "p2" }
+-        ],
+-        :suites => [
+-          { :name => 's1' },
+-          { :name => 's2' }
+-        ]
+-      })
++    before do
++      Kitchen::Instance.stubs(:new).returns("instance")
++      Kitchen::Busser.stubs(:new).returns("busser")
++      Kitchen::Driver.stubs(:for_plugin).returns("driver")
++      Kitchen::Provisioner.stubs(:for_plugin).returns("provisioner")
++      Kitchen::Logger.stubs(:new).returns("logger")
++      Kitchen::StateFile.stubs(:new).returns("state_file")
++
++      Kitchen::DataMunger.stubs(:new).returns(munger)
++      config.stubs(:platforms).returns(platforms)
++      config.stubs(:suites).returns(suites)
++      munger.stubs(:steps?).returns(false)
++    end
++
++    it "constructs a Busser object" do
++      munger.expects(:busser_data_for).with("tiny", "unax").returns("datum")
++      Kitchen::Busser.unstub(:new)
++      Kitchen::Busser.expects(:new).with("tiny", "datum")
++
++      config.instances
++    end
++
++    it "constructs a Driver object" do
++      munger.expects(:driver_data_for).with("tiny", "unax").
++        returns(:name => "drivey", :datum => "lots")
++      Kitchen::Driver.unstub(:for_plugin)
++      Kitchen::Driver.expects(:for_plugin).
++        with("drivey", :name => "drivey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs single Provisioner object" do
++      munger.expects(:provisioner_data_for).with("tiny", "unax").
++        returns(:name => "provey", :datum => "lots")
++      Kitchen::Provisioner.unstub(:for_plugin)
++      Kitchen::Provisioner.expects(:for_plugin).
++        with("provey", :name => "provey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs Provisioner objects" do
++      munger.stubs(:steps?).returns(true)
++      config.stubs(:each_step).yields(stub(:name => "tiny_step_1"))
++      munger.expects(:provisioner_data_for).with("tiny_step_1", "unax").
++        returns(:name => "provey", :datum => "lots")
++      Kitchen::Provisioner.unstub(:for_plugin)
++      Kitchen::Provisioner.expects(:for_plugin).
++        with("provey", :name => "provey", :datum => "lots")
++
++      config.instances
++    end
++
++    it "constructs a Logger object" do
++      Kitchen::Logger.unstub(:new)
++      Kitchen::Logger.expects(:new).with(
++        :stdout => STDOUT,
++        :color => :cyan,
++        :logdev => "/tmp/logs/tiny-unax.log",
++        :level => 0,
++        :progname => "tiny-unax"
++      )
++
++      config.instances
++    end
+ 
++    it "constructs an Instance object from all built objects" do
++      Kitchen::Instance.unstub(:new)
++      Kitchen::Instance.expects(:new).with(
++        :busser => "busser",
++        :driver => "driver",
++        :logger => "logger",
++        :suite => suites.first,
++        :platform => platforms.first,
++        :provisioners => ["provisioner"],
++        :state_file => "state_file"
++      )
+       config.instances
+     end
+   end
+diff --git opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/instance_spec.rb opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/instance_spec.rb
+index 7e88acf..f02bdd4 100644
+--- opt.orig/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/instance_spec.rb
++++ opt/chefdk/embedded/lib/ruby/gems/2.1.0/gems/test-kitchen-1.2.1/spec/kitchen/instance_spec.rb
+@@ -89,13 +89,13 @@ describe Kitchen::Instance do
+   let(:logger_io)   { StringIO.new }
+   let(:logger)      { Kitchen::Logger.new(:logdev => logger_io) }
+   let(:instance)    { Kitchen::Instance.new(opts) }
+-  let(:provisioner) { Kitchen::Provisioner::Dummy.new({}) }
++  let(:provisioners) { [Kitchen::Provisioner::Dummy.new({})] }
+   let(:state_file)  { DummyStateFile.new }
+   let(:busser)      { Kitchen::Busser.new(suite.name, {}) }
+ 
+   let(:opts) do
+     { :suite => suite, :platform => platform, :driver => driver,
+-      :provisioner => provisioner, :busser => busser,
++      :provisioners => provisioners, :busser => busser,
+       :logger => logger, :state_file => state_file }
+   end
+ 
+@@ -198,20 +198,22 @@ describe Kitchen::Instance do
+     end
+   end
+ 
+-  describe "#provisioner" do
++  describe "#provisioners" do
+ 
+-    it "returns its provisioner" do
+-      instance.provisioner.must_equal provisioner
++    it "returns its provisioners" do
++      instance.provisioners.must_equal provisioners
+     end
+ 
+     it "raises an ArgumentError if missing" do
+-      opts.delete(:provisioner)
++      opts.delete(:provisioners)
+       proc { Kitchen::Instance.new(opts) }.must_raise Kitchen::ClientError
+     end
+ 
+     it "sets Provisioner#instance to itself" do
+       # it's mind-bottling
+-      instance.provisioner.instance.must_equal instance
++      instance.provisioners.each do |provisioner|
++        provisioner.instance.must_equal instance
++      end
+     end
+   end
+ 
+@@ -251,6 +253,51 @@ describe Kitchen::Instance do
+     instance.login
+   end
+ 
++  describe "#diagnose" do
++
++    it "returns a hash" do
++      instance.diagnose.must_be_instance_of Hash
++    end
++
++    it "sets :state_file key to state_file's diganose info" do
++      state_file.stubs(:diagnose).returns(:a => "b")
++
++      instance.diagnose[:state_file].must_equal(:a => "b")
++    end
++
++    it "sets :provisioners key to provisioner's diganose info" do
++      provisioner = provisioners.first
++      provisioner.stubs(:diagnose).returns(:a => "b")
++      provisioners.stubs(:[]).returns(provisioner)
++
++      instance.diagnose[:provisioners].first.must_equal(:a => "b")
++    end
++
++    it "sets :provisioners key to :unknown if obj can't respond to #diagnose" do
++      opts[:provisioners] = [
++        Class.new(provisioners.first.class) {
++          undef_method :diagnose
++        }.new
++      ]
++
++      instance.diagnose[:provisioners].first.must_equal :unknown
++    end
++
++    it "sets :busser key to busser's diganose info" do
++      busser.stubs(:diagnose).returns(:a => "b")
++
++      instance.diagnose[:busser].must_equal(:a => "b")
++    end
++
++    it "sets :busser key to :unknown if obj can't respond to #diagnose" do
++      opts[:busser] = Class.new(busser.class) {
++        undef_method :diagnose
++      }.new(suite.name, {})
++
++      instance.diagnose[:busser].must_equal :unknown
++    end
++  end
++
+   describe "performing actions" do
+ 
+     describe "#create" do
+@@ -731,7 +778,7 @@ describe Kitchen::Instance do
+         it "write the state file with last action" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_be_nil
+@@ -754,7 +801,7 @@ describe Kitchen::Instance do
+         it "logs the failure" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           logger_io.string.must_match regex_for(
+@@ -771,7 +818,7 @@ describe Kitchen::Instance do
+         it "write the state file with last action" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_be_nil
+@@ -794,7 +841,7 @@ describe Kitchen::Instance do
+         it "logs the failure" do
+           begin
+             instance.public_send(action)
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           logger_io.string.must_match regex_for(
+@@ -815,7 +862,7 @@ describe Kitchen::Instance do
+           state_file.write({ :last_action => action.to_s })
+           begin
+             instance.verify
+-          rescue Kitchen::Error => e
++          rescue Kitchen::Error
+           end
+ 
+           state_file.read[:last_action].must_equal "setup"
+@@ -826,7 +873,7 @@ describe Kitchen::Instance do
+         state_file.write({ :last_action => "verify" })
+         begin
+           instance.verify
+-        rescue Kitchen::Error => e
++        rescue Kitchen::Error
+         end
+ 
+         state_file.read[:last_action].must_equal "verify"
+-- 
+2.0.4
+
